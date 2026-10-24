@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1216">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg">
+<link rel="apple-touch-icon" href="icon.svg">
+<title>FitCore</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top"><div class="brand">FitCore</div><div id="topDate"></div></header>
+<main id="app"></main>
+<nav id="nav" class="nav">
+  <button data-a="tab" data-v="dash"><span>📊</span>Today</button>
+  <button data-a="tab" data-v="meals"><span>🍽️</span>Meals</button>
+  <button data-a="tab" data-v="work"><span>🏋️</span>Workout</button>
+  <button data-a="tab" data-v="coach"><span>🤖</span>Coach</button>
+  <button data-a="tab" data-v="hub"><span>⚙️</span>Hub</button>
+</nav>
+<div id="modal"></div>
+<div id="toast"></div>
+<script src="logic.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
