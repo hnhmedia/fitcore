@@ -2,6 +2,7 @@ import { WorkoutRoutine, CompletedWorkout, BodyMeasurement, ActiveExercise } fro
 import { INITIAL_ROUTINES, INITIAL_BODY_MEASUREMENTS, INITIAL_COMPLETED_WORKOUTS } from '../utils/sampleData';
 
 const KEYS = {
+  HAS_INITIALIZED: 'aerofit_has_initialized',
   ROUTINES: 'aerofit_routines',
   COMPLETED_WORKOUTS: 'aerofit_completed_workouts',
   ACTIVE_WORKOUT: 'aerofit_active_workout',
@@ -28,21 +29,34 @@ export interface ActiveWorkoutState {
 }
 
 export const storageService = {
+  isInitialized(): boolean {
+    return localStorage.getItem(KEYS.HAS_INITIALIZED) === 'true';
+  },
+
+  markInitialized() {
+    localStorage.setItem(KEYS.HAS_INITIALIZED, 'true');
+  },
+
   // ROUTINES
   getRoutines(): WorkoutRoutine[] {
     const raw = localStorage.getItem(KEYS.ROUTINES);
     if (!raw) {
+      if (this.isInitialized()) {
+        return [];
+      }
+      this.markInitialized();
       this.saveRoutines(INITIAL_ROUTINES);
       return INITIAL_ROUTINES;
     }
     try {
       return JSON.parse(raw);
     } catch {
-      return INITIAL_ROUTINES;
+      return [];
     }
   },
 
   saveRoutines(routines: WorkoutRoutine[]) {
+    this.markInitialized();
     localStorage.setItem(KEYS.ROUTINES, JSON.stringify(routines));
   },
 
@@ -64,17 +78,22 @@ export const storageService = {
   getCompletedWorkouts(): CompletedWorkout[] {
     const raw = localStorage.getItem(KEYS.COMPLETED_WORKOUTS);
     if (!raw) {
+      if (this.isInitialized()) {
+        return [];
+      }
+      this.markInitialized();
       this.saveCompletedWorkouts(INITIAL_COMPLETED_WORKOUTS);
       return INITIAL_COMPLETED_WORKOUTS;
     }
     try {
       return JSON.parse(raw);
     } catch {
-      return INITIAL_COMPLETED_WORKOUTS;
+      return [];
     }
   },
 
   saveCompletedWorkouts(workouts: CompletedWorkout[]) {
+    this.markInitialized();
     localStorage.setItem(KEYS.COMPLETED_WORKOUTS, JSON.stringify(workouts));
   },
 
@@ -119,17 +138,22 @@ export const storageService = {
   getBodyMeasurements(): BodyMeasurement[] {
     const raw = localStorage.getItem(KEYS.BODY_MEASUREMENTS);
     if (!raw) {
+      if (this.isInitialized()) {
+        return [];
+      }
+      this.markInitialized();
       this.saveBodyMeasurements(INITIAL_BODY_MEASUREMENTS);
       return INITIAL_BODY_MEASUREMENTS;
     }
     try {
       return JSON.parse(raw);
     } catch {
-      return INITIAL_BODY_MEASUREMENTS;
+      return [];
     }
   },
 
   saveBodyMeasurements(measurements: BodyMeasurement[]) {
+    this.markInitialized();
     // Keep sorted by date ascending
     const sorted = [...measurements].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     localStorage.setItem(KEYS.BODY_MEASUREMENTS, JSON.stringify(sorted));
@@ -236,6 +260,7 @@ export const storageService = {
   },
 
   clearAllData(clearRoutines: boolean = false) {
+    this.markInitialized();
     this.saveCompletedWorkouts([]);
     this.saveBodyMeasurements([]);
     this.clearActiveWorkout();
@@ -245,6 +270,7 @@ export const storageService = {
   },
 
   resetToDefault() {
+    this.markInitialized();
     this.saveRoutines(INITIAL_ROUTINES);
     this.saveCompletedWorkouts(INITIAL_COMPLETED_WORKOUTS);
     this.saveBodyMeasurements(INITIAL_BODY_MEASUREMENTS);
