@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <rect width="512" height="512" rx="128" fill="#09090b"/>
+  <rect x="32" y="32" width="448" height="448" rx="96" fill="url(#bg_grad)" stroke="#22c55e" stroke-opacity="0.3" stroke-width="8"/>
+  <path d="M120 180H160V332H120V180Z" fill="#22c55e" rx="10"/>
+  <path d="M352 180H392V332H352V180Z" fill="#22c55e" rx="10"/>
+  <path d="M72 216H104V296H72V216Z" fill="#4ade80" rx="8"/>
+  <path d="M408 216H440V296H408V216Z" fill="#4ade80" rx="8"/>
+  <rect x="160" y="236" width="192" height="40" rx="8" fill="#f4f4f5"/>
+  <path d="M220 236H292V276H220V236Z" fill="#a1a1aa"/>
+  <circle cx="256" cy="140" r="14" fill="#22c55e"/>
+  <defs>
+    <radialGradient id="bg_grad" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#14532d" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#09090b" stop-opacity="0.95"/>
+    </radialGradient>
+  </defs>
+</svg>
+

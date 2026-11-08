@@ -1,29 +1,25 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0f1216">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<link rel="manifest" href="manifest.json">
-<link rel="icon" href="icon.svg">
-<link rel="apple-touch-icon" href="icon.svg">
-<title>FitCore</title>
-<link rel="stylesheet" href="style.css">
-</head>
-<body>
-<header class="top"><div class="brand">FitCore</div><div id="topDate"></div></header>
-<main id="app"></main>
-<nav id="nav" class="nav">
-  <button data-a="tab" data-v="dash"><span>📊</span>Today</button>
-  <button data-a="tab" data-v="meals"><span>🍽️</span>Meals</button>
-  <button data-a="tab" data-v="work"><span>🏋️</span>Workout</button>
-  <button data-a="tab" data-v="coach"><span>🤖</span>Coach</button>
-  <button data-a="tab" data-v="hub"><span>⚙️</span>Hub</button>
-</nav>
-<div id="modal"></div>
-<div id="toast"></div>
-<script src="logic.js"></script>
-<script src="app.js"></script>
-</body>
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#000000" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="AeroFit AI" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="apple-touch-icon" href="/icon.svg" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <title>AeroFit AI - Smart Workout & Body Tracker with Gemini</title>
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  </head>
+  <body class="bg-black text-zinc-100 font-['Plus_Jakarta_Sans',sans-serif] min-h-screen antialiased selection:bg-emerald-500 selection:text-black">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
 </html>
+
