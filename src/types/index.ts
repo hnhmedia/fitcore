@@ -30,6 +30,16 @@ export interface ActiveExercise {
   notes?: string;
   sets: ExerciseSet[];
   isFinished: boolean;
+  machineId?: string; // which gym machine was used (see GymMachine)
+}
+
+/** A specific machine/station at your gym, saved with a photo so you can find it again. */
+export interface GymMachine {
+  id: string;
+  exerciseKey: string; // normalised exercise name
+  label: string; // e.g. "Hammer Strength, by the window"
+  photo?: string; // small JPEG data URL
+  createdAt: string;
 }
 
 export interface WorkoutRoutine {

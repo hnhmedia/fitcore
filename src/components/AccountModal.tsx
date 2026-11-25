@@ -113,6 +113,23 @@ export const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose }) =
               </button>
             </div>
             <p className="text-[11px] text-zinc-500">Logging out keeps everything on this device.</p>
+            <button
+              onClick={async () => {
+                const pw = prompt(
+                  'Delete your account? This permanently removes your cloud backup, synced data and progress photos. Data on this device stays.\n\nEnter your password to confirm:'
+                );
+                if (!pw) return;
+                try {
+                  await syncService.deleteAccount(pw);
+                  alert('Your account and cloud data have been deleted.');
+                } catch (e) {
+                  alert((e as Error).message || 'Could not delete the account.');
+                }
+              }}
+              className="w-full pt-3 mt-1 border-t border-zinc-800 text-xs font-bold text-red-400/80 hover:text-red-400"
+            >
+              Delete account
+            </button>
           </div>
         ) : (
           <form onSubmit={submit} className="space-y-3">

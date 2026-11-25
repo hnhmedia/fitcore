@@ -17,18 +17,35 @@ const byNewest = (a: CompletedWorkout, b: CompletedWorkout) => (b.startTime || 0
 export interface LastPerformance {
   date: string;
   sets: { weight: number; reps: number }[];
+  machineId?: string;
+  /** True when a machine was asked for and this session used that same machine. */
+  sameMachine?: boolean;
 }
 
-/** The most recent session that included this exercise (working sets only). */
-export function getLastPerformance(workouts: CompletedWorkout[], exerciseName: string): LastPerformance | null {
+/**
+ * The most recent session that included this exercise (working sets only).
+ * With a machineId, prefers the last session on that exact machine; set strictMachine
+ * to return null instead of falling back to another machine.
+ */
+export function getLastPerformance(
+  workouts: CompletedWorkout[],
+  exerciseName: string,
+  machineId?: string,
+  strictMachine = false,
+): LastPerformance | null {
   const key = normName(exerciseName);
+  let fallback: LastPerformance | null = null;
   for (const w of [...workouts].sort(byNewest)) {
     const ex = w.exercises?.find((e) => normName(e.name) === key);
     if (!ex) continue;
     const sets = workingSets(ex).map((s) => ({ weight: s.weight, reps: s.reps }));
-    if (sets.length) return { date: w.date, sets };
+    if (!sets.length) continue;
+    const perf = { date: w.date, sets, machineId: ex.machineId };
+    if (!machineId) return perf;
+    if (ex.machineId === machineId) return { ...perf, sameMachine: true };
+    if (!fallback) fallback = { ...perf, sameMachine: false };
   }
-  return null;
+  return strictMachine ? null : fallback;
 }
 
 export interface PersonalBest {
@@ -84,8 +101,9 @@ export function buildSets(
   targetReps: number,
   defaultWeight: number,
   unit: 'kg' | 'lbs',
+  machineId?: string,
 ): ExerciseSet[] {
-  const last = getLastPerformance(workouts, exerciseName);
+  const last = getLastPerformance(workouts, exerciseName, machineId);
   const suggestion = suggestNextWeight(last, targetReps, unit);
   const stamp = Date.now();
   return Array.from({ length: Math.max(1, targetSets) }).map((_, i) => {
@@ -115,15 +133,20 @@ export function workoutFromRoutine(
     routineId: routine.id,
     routineName: routine.name,
     startTime: stamp,
-    exercises: routine.exercises.map((e) => ({
-      id: `act-${e.id}-${stamp}`,
-      name: e.name,
-      muscle: e.muscle,
-      restSeconds: e.restSeconds || 90,
-      notes: e.notes,
-      isFinished: false,
-      sets: buildSets(workouts, e.name, e.targetSets || 3, e.targetReps || 10, e.defaultWeight || 20, unit),
-    })),
+    exercises: routine.exercises.map((e) => {
+      // Start on the same machine you used last time for this exercise.
+      const machineId = getLastPerformance(workouts, e.name)?.machineId;
+      return {
+        id: `act-${e.id}-${stamp}`,
+        name: e.name,
+        muscle: e.muscle,
+        restSeconds: e.restSeconds || 90,
+        notes: e.notes,
+        isFinished: false,
+        machineId,
+        sets: buildSets(workouts, e.name, e.targetSets || 3, e.targetReps || 10, e.defaultWeight || 20, unit, machineId),
+      };
+    }),
   };
 }
 

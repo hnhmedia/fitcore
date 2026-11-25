@@ -24,6 +24,7 @@ const SYNC_KEYS = new Set([
   'bodyMeasurements',
   'preferences',
   'geminiModel',
+  'machines',
   'tombstones',
 ]);
 const MAX_DOC_BYTES = 5 * 1024 * 1024;
@@ -186,6 +187,21 @@ app.post('/api/login', async (c) => {
 app.post('/api/logout', async (c) => {
   const token = getCookie(c, COOKIE);
   if (token) await pool.query('DELETE FROM sessions WHERE token_hash = $1', [sha256(token)]);
+  deleteCookie(c, COOKIE, { path: '/' });
+  return c.json({ ok: true });
+});
+
+// Permanently deletes the account and everything stored for it (sessions, synced data, photos).
+app.post('/api/account/delete', async (c) => {
+  const user = await currentUser(c);
+  if (!user) return c.json({ error: 'Not logged in.' }, 401);
+  if (throttled(c)) return c.json({ error: 'Too many attempts, try again in a few minutes.' }, 429);
+  const body = await c.req.json().catch(() => ({}));
+  const { rows } = await pool.query('SELECT password_hash FROM users WHERE id = $1', [user.id]);
+  if (!rows[0] || !(await verifyPassword(String(body.password || ''), rows[0].password_hash))) {
+    return c.json({ error: 'Wrong password.' }, 401);
+  }
+  await pool.query('DELETE FROM users WHERE id = $1', [user.id]); // cascades to sessions, data and photos
   deleteCookie(c, COOKIE, { path: '/' });
   return c.json({ ok: true });
 });

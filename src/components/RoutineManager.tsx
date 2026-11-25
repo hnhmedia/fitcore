@@ -16,7 +16,8 @@ import {
   CheckCircle2,
   Check,
   Calendar,
-  RotateCcw
+  RotateCcw,
+  Info
 } from 'lucide-react';
 import { WorkoutRoutine, ActiveExercise, CompletedWorkout } from '../types';
 import { workoutFromRoutine, blankWorkout, lastDoneDate, isoDay, daysAgo } from '../utils/history';
@@ -24,6 +25,7 @@ import { storageService, ActiveWorkoutState } from '../services/storageService';
 import { ImportGeminiModal } from './ImportGeminiModal';
 import { GenerateRoutineModal } from './GenerateRoutineModal';
 import { CreateRoutineModal } from './CreateRoutineModal';
+import { ExerciseGuideSheet } from './ExerciseGuideSheet';
 
 interface RoutineManagerProps {
   routines: WorkoutRoutine[];
@@ -40,6 +42,7 @@ export const RoutineManager: React.FC<RoutineManagerProps> = ({
   onRoutinesChanged,
   onOpenSettings,
 }) => {
+  const [guideFor, setGuideFor] = useState<string | null>(null);
   const [selectedRoutine, setSelectedRoutine] = useState<WorkoutRoutine | null>(null);
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [isGenerateOpen, setIsGenerateOpen] = useState(false);
@@ -237,6 +240,13 @@ export const RoutineManager: React.FC<RoutineManagerProps> = ({
                           <p className="text-[10px] text-zinc-500">{ex.muscle}</p>
                         </div>
                         <span className="font-mono text-zinc-400 shrink-0">{ex.targetSets}×{ex.targetReps}</span>
+                        <button
+                          onClick={() => setGuideFor(ex.name)}
+                          className="p-1.5 text-zinc-500 hover:text-emerald-400 shrink-0"
+                          aria-label={`How to do ${ex.name}`}
+                        >
+                          <Info size={14} />
+                        </button>
                       </div>
                     ))}
                   </div>
@@ -281,6 +291,8 @@ export const RoutineManager: React.FC<RoutineManagerProps> = ({
       </div>
 
       {/* Modals */}
+      <ExerciseGuideSheet exerciseName={guideFor} onClose={() => setGuideFor(null)} />
+
       <ImportGeminiModal
         isOpen={isImportOpen}
         onClose={() => setIsImportOpen(false)}

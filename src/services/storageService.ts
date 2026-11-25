@@ -1,4 +1,4 @@
-import { WorkoutRoutine, CompletedWorkout, BodyMeasurement, ActiveExercise } from '../types';
+import { WorkoutRoutine, CompletedWorkout, BodyMeasurement, ActiveExercise, GymMachine } from '../types';
 import { INITIAL_ROUTINES, INITIAL_BODY_MEASUREMENTS, INITIAL_COMPLETED_WORKOUTS } from '../utils/sampleData';
 import { syncService } from './syncService';
 
@@ -29,6 +29,7 @@ const KEYS = {
   GEMINI_API_KEY: 'aerofit_gemini_api_key',
   GEMINI_MODEL: 'aerofit_gemini_model',
   USER_PREFERENCES: 'aerofit_user_preferences',
+  MACHINES: 'aerofit_machines',
 };
 
 export interface UserPreferences {
@@ -214,6 +215,19 @@ export const storageService = {
     const previous = localStorage.getItem(KEYS.GEMINI_MODEL);
     localStorage.setItem(KEYS.GEMINI_MODEL, model);
     if (previous !== model) syncService.noteLocalWrite(KEYS.GEMINI_MODEL, previous, model);
+  },
+
+  // GYM MACHINES (photos of the exact machine you used)
+  getMachines(): GymMachine[] {
+    try {
+      return JSON.parse(localStorage.getItem(KEYS.MACHINES) || '[]');
+    } catch {
+      return [];
+    }
+  },
+
+  saveMachines(machines: GymMachine[]) {
+    writeSynced(KEYS.MACHINES, machines);
   },
 
   // PREFERENCES

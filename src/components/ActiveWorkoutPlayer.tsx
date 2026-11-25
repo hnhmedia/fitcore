@@ -20,13 +20,17 @@ import {
   Info,
   TrendingUp,
   Dumbbell,
+  Camera,
+  BookOpen,
 } from 'lucide-react';
-import { ActiveExercise, ExerciseSet, MuscleGroup, CompletedWorkout } from '../types';
+import { ActiveExercise, ExerciseSet, MuscleGroup, CompletedWorkout, GymMachine } from '../types';
 import { storageService, ActiveWorkoutState } from '../services/storageService';
 import { geminiService } from '../services/geminiService';
 import { FinishWorkoutModal } from './FinishWorkoutModal';
 import { PlateCalculatorModal } from './PlateCalculatorModal';
 import { RestBar } from './RestBar';
+import { ExerciseGuideSheet } from './ExerciseGuideSheet';
+import { MachinePicker } from './MachinePicker';
 import { soundEffects } from '../utils/audio';
 import {
   buildSets,
@@ -34,6 +38,7 @@ import {
   e1rm,
   getLastPerformance,
   getPersonalBest,
+  normName,
   suggestNextWeight,
 } from '../utils/history';
 import { EXERCISE_LIBRARY, MUSCLE_GROUPS, findLibraryExercise } from '../utils/exerciseLibrary';
@@ -77,7 +82,9 @@ export const ActiveWorkoutPlayer: React.FC<ActiveWorkoutPlayerProps> = ({
   const [searchExercise, setSearchExercise] = useState('');
   const [muscleFilter, setMuscleFilter] = useState<MuscleGroup | 'All'>('All');
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
-  const [cuesOpen, setCuesOpen] = useState<Record<string, boolean>>({});
+  const [guideFor, setGuideFor] = useState<string | null>(null);
+  const [machinePickerFor, setMachinePickerFor] = useState<number | null>(null);
+  const [machines, setMachines] = useState<GymMachine[]>(() => storageService.getMachines());
   const [plateCalcOpen, setPlateCalcOpen] = useState(false);
   const [swapExIndex, setSwapExIndex] = useState<number | null>(null);
   const [swapAlternatives, setSwapAlternatives] = useState<{ name: string; equipment: string; reason: string }[]>([]);
@@ -105,7 +112,7 @@ export const ActiveWorkoutPlayer: React.FC<ActiveWorkoutPlayerProps> = ({
   // History per exercise name: last session, best set, today's suggestion.
   const historyFor = useCallback(
     (ex: ActiveExercise) => {
-      const last = getLastPerformance(completedWorkouts, ex.name);
+      const last = getLastPerformance(completedWorkouts, ex.name, ex.machineId);
       const best = getPersonalBest(completedWorkouts, ex.name);
       const target = ex.sets.find((s) => s.type !== 'warmup')?.targetReps || ex.sets.find((s) => s.type !== 'warmup')?.reps || 10;
       return { last, best, suggestion: suggestNextWeight(last, target, unit) };
@@ -292,6 +299,37 @@ export const ActiveWorkoutPlayer: React.FC<ActiveWorkoutPlayerProps> = ({
     setSwapExIndex(null);
   };
 
+  // Switching machine: show that machine's last numbers and, if nothing is ticked yet, prefill from them.
+  const handleSelectMachine = (exIndex: number, machineId: string | undefined) => {
+    updateExercise(exIndex, (ex) => {
+      const last = getLastPerformance(completedWorkouts, ex.name, machineId, Boolean(machineId));
+      const untouched = !ex.sets.some((s) => s.isCompleted);
+      const target = ex.sets.find((s) => s.type !== 'warmup')?.targetReps || ex.sets.find((s) => s.type !== 'warmup')?.reps || 10;
+      const suggestion = suggestNextWeight(last, target, unit);
+      let working = 0;
+      return {
+        ...ex,
+        machineId,
+        sets: ex.sets.map((s) => {
+          if (s.type === 'warmup') return s;
+          const prev = last?.sets[working] ?? last?.sets[last.sets.length - 1];
+          working++;
+          return {
+            ...s,
+            previousWeight: prev?.weight,
+            previousReps: prev?.reps,
+            weight: untouched && suggestion ? suggestion.weight : s.weight,
+          };
+        }),
+      };
+    });
+  };
+
+  const saveMachines = (list: GymMachine[]) => {
+    storageService.saveMachines(list);
+    setMachines(list);
+  };
+
   const totalVolume = exercises.reduce(
     (acc, ex) => acc + ex.sets.reduce((sAcc, s) => (s.isCompleted ? sAcc + s.weight * s.reps : sAcc), 0),
     0
@@ -406,16 +444,14 @@ export const ActiveWorkoutPlayer: React.FC<ActiveWorkoutPlayerProps> = ({
                   </button>
 
                   <div className="flex items-center gap-0.5 shrink-0">
-                    {lib && (
-                      <button
-                        onClick={() => setCuesOpen((p) => ({ ...p, [ex.id]: !p[ex.id] }))}
-                        className={`p-1.5 rounded-lg hover:bg-zinc-800 ${cuesOpen[ex.id] ? 'text-emerald-400' : 'text-zinc-400'}`}
-                        title="Form tips"
-                        aria-label="Form tips"
-                      >
-                        <Info size={16} />
-                      </button>
-                    )}
+                    <button
+                      onClick={() => setGuideFor(ex.name)}
+                      className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-emerald-400"
+                      title="How to do this exercise"
+                      aria-label="How to do this exercise"
+                    >
+                      <Info size={16} />
+                    </button>
                     <button
                       onClick={() => handleOpenSwap(exIndex)}
                       className="p-1.5 rounded-lg text-zinc-400 hover:text-emerald-400 hover:bg-zinc-800"
@@ -455,7 +491,7 @@ export const ActiveWorkoutPlayer: React.FC<ActiveWorkoutPlayerProps> = ({
                   <div className="mt-2.5 space-y-1.5">
                     {last ? (
                       <div className="text-[11px] text-zinc-400 flex flex-wrap items-center gap-x-2 gap-y-1">
-                        <span className="font-semibold text-zinc-500">Last ({daysAgo(last.date)}):</span>
+                        <span className="font-semibold text-zinc-500">Last ({daysAgo(last.date)}{last.sameMachine ? ', this machine' : ''}):</span>
                         <span className="font-mono text-zinc-300">
                           {last.sets.map((s) => `${fmtNum(s.weight)}×${s.reps}`).join('  ')}
                         </span>
@@ -471,14 +507,40 @@ export const ActiveWorkoutPlayer: React.FC<ActiveWorkoutPlayerProps> = ({
                         <TrendingUp size={12} /> You hit all reps last time – try {fmtNum(suggestion.weight)}{unit} today
                       </div>
                     )}
-                    {cuesOpen[ex.id] && lib && (
-                      <ul className="mt-1 p-2.5 rounded-xl bg-zinc-950/80 border border-zinc-800 text-[11px] text-zinc-300 space-y-1">
-                        {lib.cues.map((c) => (
-                          <li key={c} className="flex gap-1.5"><span className="text-emerald-400">•</span>{c}</li>
-                        ))}
-                        <li className="text-zinc-500 pt-0.5">{lib.equipment}</li>
-                      </ul>
-                    )}
+                    {/* Machine used */}
+                    {(() => {
+                      const m = machines.find((x) => x.id === ex.machineId);
+                      const savedCount = machines.filter((x) => x.exerciseKey === normName(ex.name)).length;
+                      return (
+                        <button
+                          onClick={() => setMachinePickerFor(exIndex)}
+                          className="mt-1 w-full flex items-center gap-2.5 p-2 rounded-xl bg-zinc-950/70 border border-zinc-800 text-left"
+                        >
+                          {m?.photo ? (
+                            <img src={m.photo} alt={m.label} className="w-10 h-10 rounded-lg object-cover shrink-0" />
+                          ) : (
+                            <span className="w-10 h-10 rounded-lg bg-zinc-800 flex items-center justify-center shrink-0 text-zinc-400">
+                              <Camera size={16} />
+                            </span>
+                          )}
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-[12px] font-bold text-zinc-200 truncate">
+                              {m ? m.label : savedCount ? 'Which machine are you on?' : 'Save this machine (photo)'}
+                            </span>
+                            <span className="block text-[10px] text-zinc-500">
+                              {m
+                                ? last?.sameMachine === false
+                                  ? 'First time on this one · numbers above are from another machine'
+                                  : 'Numbers above are from this machine · tap to change'
+                                : savedCount
+                                ? `${savedCount} saved · tap to pick`
+                                : 'Know exactly which one you used next time'}
+                            </span>
+                          </span>
+                        </button>
+                      );
+                    })()}
+                    {!lib && null}
                   </div>
                 )}
               </div>
@@ -716,20 +778,28 @@ export const ActiveWorkoutPlayer: React.FC<ActiveWorkoutPlayerProps> = ({
               {libraryMatches.map((item) => {
                 const lastP = getLastPerformance(completedWorkouts, item.name);
                 return (
-                  <button
-                    key={item.name}
-                    onClick={() => handleSelectNewExercise(item.name, item.muscle)}
-                    className="w-full text-left p-3 rounded-xl bg-zinc-900/60 hover:bg-zinc-800/80 border border-zinc-800/60 flex items-center justify-between gap-2"
-                  >
-                    <div className="min-w-0">
-                      <p className="font-semibold text-sm text-zinc-200 truncate">{item.name}</p>
-                      <p className="text-[11px] text-zinc-500">
-                        {item.equipment}
-                        {lastP ? ` · last ${fmtNum(lastP.sets[0].weight)}${unit} × ${lastP.sets[0].reps}` : ''}
-                      </p>
-                    </div>
-                    <span className="text-[10px] px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 shrink-0">{item.muscle}</span>
-                  </button>
+                  <div key={item.name} className="flex items-stretch gap-1.5">
+                    <button
+                      onClick={() => handleSelectNewExercise(item.name, item.muscle)}
+                      className="flex-1 min-w-0 text-left p-3 rounded-xl bg-zinc-900/60 hover:bg-zinc-800/80 border border-zinc-800/60 flex items-center justify-between gap-2"
+                    >
+                      <div className="min-w-0">
+                        <p className="font-semibold text-sm text-zinc-200 truncate">{item.name}</p>
+                        <p className="text-[11px] text-zinc-500">
+                          {item.equipment}
+                          {lastP ? ` · last ${fmtNum(lastP.sets[0].weight)}${unit} × ${lastP.sets[0].reps}` : ''}
+                        </p>
+                      </div>
+                      <span className="text-[10px] px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 shrink-0">{item.muscle}</span>
+                    </button>
+                    <button
+                      onClick={() => setGuideFor(item.name)}
+                      className="px-3 rounded-xl bg-zinc-900/60 border border-zinc-800/60 text-zinc-400 hover:text-emerald-400"
+                      aria-label={`How to do ${item.name}`}
+                    >
+                      <BookOpen size={15} />
+                    </button>
+                  </div>
                 );
               })}
               {libraryMatches.length === 0 && !searchExercise.trim() && (
@@ -738,6 +808,21 @@ export const ActiveWorkoutPlayer: React.FC<ActiveWorkoutPlayerProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      <ExerciseGuideSheet exerciseName={guideFor} onClose={() => setGuideFor(null)} />
+
+      {machinePickerFor !== null && exercises[machinePickerFor] && (
+        <MachinePicker
+          exerciseName={exercises[machinePickerFor].name}
+          machines={machines}
+          selectedId={exercises[machinePickerFor].machineId}
+          completedWorkouts={completedWorkouts}
+          unit={unit}
+          onSelect={(id) => handleSelectMachine(machinePickerFor, id)}
+          onSaveMachines={saveMachines}
+          onClose={() => setMachinePickerFor(null)}
+        />
       )}
 
       <PlateCalculatorModal

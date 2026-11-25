@@ -12,7 +12,8 @@ export type SyncKey =
   | 'completedWorkouts'
   | 'bodyMeasurements'
   | 'preferences'
-  | 'geminiModel';
+  | 'geminiModel'
+  | 'machines';
 
 export const LOCAL_KEYS: Record<SyncKey, string> = {
   routines: 'aerofit_routines',
@@ -20,9 +21,10 @@ export const LOCAL_KEYS: Record<SyncKey, string> = {
   bodyMeasurements: 'aerofit_body_measurements',
   preferences: 'aerofit_user_preferences',
   geminiModel: 'aerofit_gemini_model',
+  machines: 'aerofit_machines',
 };
 
-const LIST_KEYS: SyncKey[] = ['routines', 'completedWorkouts', 'bodyMeasurements'];
+const LIST_KEYS: SyncKey[] = ['routines', 'completedWorkouts', 'bodyMeasurements', 'machines'];
 const ALL_KEYS = Object.keys(LOCAL_KEYS) as SyncKey[];
 
 const META_KEY = 'fitcore_sync_meta';
@@ -316,6 +318,15 @@ export const syncService = {
   },
   login: (email: string, password: string) => authenticate('/api/login', email, password),
   signup: (email: string, password: string) => authenticate('/api/signup', email, password),
+  /** Deletes the account and all cloud data. Data on this device is kept. */
+  async deleteAccount(password: string) {
+    await api('/api/account/delete', { method: 'POST', body: JSON.stringify({ password }) });
+    localStorage.removeItem(ACCOUNT_KEY);
+    localStorage.removeItem(META_KEY);
+    localStorage.removeItem(TOMBSTONES_KEY);
+    localStorage.removeItem(LAST_SYNC_KEY);
+    setState({ email: null, status: 'signed-out', message: undefined, lastSyncedAt: null });
+  },
   async logout() {
     await api('/api/logout', { method: 'POST' }).catch(() => undefined);
     localStorage.removeItem(ACCOUNT_KEY);
