@@ -1,5 +1,24 @@
 import { WorkoutRoutine, CompletedWorkout, BodyMeasurement, ActiveExercise } from '../types';
 import { INITIAL_ROUTINES, INITIAL_BODY_MEASUREMENTS, INITIAL_COMPLETED_WORKOUTS } from '../utils/sampleData';
+import { syncService } from './syncService';
+
+// Writes a synced value and tells the sync engine (which records deletions and uploads the change).
+function writeSynced(key: string, value: unknown) {
+  let previous: unknown;
+  try {
+    previous = JSON.parse(localStorage.getItem(key) || 'null');
+  } catch {
+    previous = null;
+  }
+  localStorage.setItem(key, JSON.stringify(value));
+  syncService.noteLocalWrite(key, previous, value);
+}
+
+// Writes demo data; it is marked so it can never replace real data coming from your account.
+function writeSeed(key: string, value: unknown) {
+  localStorage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value));
+  syncService.noteSeed(key);
+}
 
 const KEYS = {
   HAS_INITIALIZED: 'aerofit_has_initialized',
@@ -45,7 +64,7 @@ export const storageService = {
         return [];
       }
       this.markInitialized();
-      this.saveRoutines(INITIAL_ROUTINES);
+      writeSeed(KEYS.ROUTINES, INITIAL_ROUTINES);
       return INITIAL_ROUTINES;
     }
     try {
@@ -57,7 +76,7 @@ export const storageService = {
 
   saveRoutines(routines: WorkoutRoutine[]) {
     this.markInitialized();
-    localStorage.setItem(KEYS.ROUTINES, JSON.stringify(routines));
+    writeSynced(KEYS.ROUTINES, routines);
   },
 
   addRoutine(routine: WorkoutRoutine) {
@@ -82,7 +101,7 @@ export const storageService = {
         return [];
       }
       this.markInitialized();
-      this.saveCompletedWorkouts(INITIAL_COMPLETED_WORKOUTS);
+      writeSeed(KEYS.COMPLETED_WORKOUTS, INITIAL_COMPLETED_WORKOUTS);
       return INITIAL_COMPLETED_WORKOUTS;
     }
     try {
@@ -94,7 +113,7 @@ export const storageService = {
 
   saveCompletedWorkouts(workouts: CompletedWorkout[]) {
     this.markInitialized();
-    localStorage.setItem(KEYS.COMPLETED_WORKOUTS, JSON.stringify(workouts));
+    writeSynced(KEYS.COMPLETED_WORKOUTS, workouts);
   },
 
   addCompletedWorkout(workout: CompletedWorkout) {
@@ -142,7 +161,7 @@ export const storageService = {
         return [];
       }
       this.markInitialized();
-      this.saveBodyMeasurements(INITIAL_BODY_MEASUREMENTS);
+      writeSeed(KEYS.BODY_MEASUREMENTS, [...INITIAL_BODY_MEASUREMENTS].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()));
       return INITIAL_BODY_MEASUREMENTS;
     }
     try {
@@ -156,7 +175,7 @@ export const storageService = {
     this.markInitialized();
     // Keep sorted by date ascending
     const sorted = [...measurements].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-    localStorage.setItem(KEYS.BODY_MEASUREMENTS, JSON.stringify(sorted));
+    writeSynced(KEYS.BODY_MEASUREMENTS, sorted);
   },
 
   addBodyMeasurement(entry: BodyMeasurement) {
@@ -185,14 +204,16 @@ export const storageService = {
   getGeminiModel(): string {
     const stored = localStorage.getItem(KEYS.GEMINI_MODEL);
     if (!stored || stored.includes('2.0') || stored.includes('1.5')) {
-      this.saveGeminiModel('gemini-3.8-flash');
+      writeSeed(KEYS.GEMINI_MODEL, 'gemini-3.8-flash');
       return 'gemini-3.8-flash';
     }
     return stored;
   },
 
   saveGeminiModel(model: string) {
+    const previous = localStorage.getItem(KEYS.GEMINI_MODEL);
     localStorage.setItem(KEYS.GEMINI_MODEL, model);
+    if (previous !== model) syncService.noteLocalWrite(KEYS.GEMINI_MODEL, previous, model);
   },
 
   // PREFERENCES
@@ -221,7 +242,7 @@ export const storageService = {
   },
 
   savePreferences(prefs: UserPreferences) {
-    localStorage.setItem(KEYS.USER_PREFERENCES, JSON.stringify(prefs));
+    writeSynced(KEYS.USER_PREFERENCES, prefs);
   },
 
   // EXPORT / IMPORT ALL APP DATA

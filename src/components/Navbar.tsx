@@ -8,9 +8,13 @@ import {
   Sparkles, 
   Flame,
   MessageSquare,
-  Calculator
+  Calculator,
+  Cloud,
+  CloudOff,
+  RefreshCw
 } from 'lucide-react';
 import { storageService, ActiveWorkoutState } from '../services/storageService';
+import { useSyncState } from './AccountModal';
 
 export type NavTab = 'workout' | 'routines' | 'progress' | 'body';
 
@@ -21,6 +25,7 @@ interface NavbarProps {
   onOpenSettings: () => void;
   onOpenCoachChat: () => void;
   onOpenPlateCalc: () => void;
+  onOpenAccount: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -30,8 +35,11 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenSettings,
   onOpenCoachChat,
   onOpenPlateCalc,
+  onOpenAccount,
 }) => {
   const hasGeminiKey = Boolean(storageService.getGeminiApiKey());
+  const sync = useSyncState();
+  const signedIn = Boolean(sync.email);
 
   return (
     <>
@@ -158,6 +166,28 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span className="hidden sm:inline">
                 {hasGeminiKey ? 'Gemini 3.8' : 'Setup Gemini'}
               </span>
+            </button>
+
+            {/* Account / sync status */}
+            <button
+              onClick={onOpenAccount}
+              className={`p-2 rounded-xl border transition-colors ${
+                !signedIn
+                  ? 'bg-amber-500/10 border-amber-500/30 text-amber-400 hover:bg-amber-500/20'
+                  : sync.status === 'error' || sync.status === 'offline'
+                  ? 'bg-zinc-900 border-zinc-800 text-amber-400'
+                  : 'bg-zinc-900 border-zinc-800 text-emerald-400 hover:text-emerald-300'
+              }`}
+              title={signedIn ? `Synced account: ${sync.email}` : 'Not backed up – sign in to sync'}
+              aria-label="Account and sync"
+            >
+              {sync.status === 'syncing' ? (
+                <RefreshCw size={17} className="animate-spin" />
+              ) : signedIn && sync.status !== 'offline' && sync.status !== 'error' ? (
+                <Cloud size={17} />
+              ) : (
+                <CloudOff size={17} />
+              )}
             </button>
 
             {/* Settings Icon */}

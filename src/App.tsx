@@ -1,15 +1,29 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { Navbar, NavTab } from './components/Navbar';
 import { ActiveWorkoutPlayer } from './components/ActiveWorkoutPlayer';
 import { RoutineManager } from './components/RoutineManager';
-import { ProgressAnalytics } from './components/ProgressAnalytics';
-import { BodyCompositionTracker } from './components/BodyCompositionTracker';
 import { GeminiSettingsModal } from './components/GeminiSettingsModal';
 import { GeminiCoachChat } from './components/GeminiCoachChat';
 import { PlateCalculatorModal } from './components/PlateCalculatorModal';
+import { AccountModal } from './components/AccountModal';
 import { storageService, ActiveWorkoutState } from './services/storageService';
+import { syncService } from './services/syncService';
 import { WorkoutRoutine, CompletedWorkout, BodyMeasurement } from './types';
 import { Play, Sparkles, Upload, Plus, Dumbbell, Trophy } from 'lucide-react';
+
+// Chart-heavy screens load only when opened, so the app starts faster.
+const ProgressAnalytics = lazy(() =>
+  import('./components/ProgressAnalytics').then((m) => ({ default: m.ProgressAnalytics }))
+);
+const BodyCompositionTracker = lazy(() =>
+  import('./components/BodyCompositionTracker').then((m) => ({ default: m.BodyCompositionTracker }))
+);
+
+const TabLoading = () => (
+  <div className="py-24 flex justify-center">
+    <div className="w-8 h-8 rounded-full border-2 border-zinc-800 border-t-emerald-400 animate-spin" />
+  </div>
+);
 
 export function App() {
   const [currentTab, setCurrentTab] = useState<NavTab>('routines');
@@ -20,11 +34,16 @@ export function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isCoachChatOpen, setIsCoachChatOpen] = useState(false);
   const [isPlateCalcOpen, setIsPlateCalcOpen] = useState(false);
+  const [isAccountOpen, setIsAccountOpen] = useState(false);
   const [unit, setUnit] = useState<'kg' | 'lbs'>('kg');
 
   // Initial Load from Storage
   useEffect(() => {
     loadAllData();
+    // Reload the screens whenever newer data arrives from the account, then start syncing.
+    const off = syncService.onRemoteData(loadAllData);
+    void syncService.start();
+    return off;
   }, []);
 
   const loadAllData = () => {
@@ -72,6 +91,7 @@ export function App() {
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenCoachChat={() => setIsCoachChatOpen(true)}
         onOpenPlateCalc={() => setIsPlateCalcOpen(true)}
+        onOpenAccount={() => setIsAccountOpen(true)}
       />
 
       {/* Main Content Area */}
@@ -169,19 +189,23 @@ export function App() {
 
         {/* TAB 3: PROGRESSIVE OVERLOAD */}
         {currentTab === 'progress' && (
-          <ProgressAnalytics
-            completedWorkouts={completedWorkouts}
-            unit={unit}
-          />
+          <Suspense fallback={<TabLoading />}>
+            <ProgressAnalytics
+              completedWorkouts={completedWorkouts}
+              unit={unit}
+            />
+          </Suspense>
         )}
 
         {/* TAB 4: BODY COMPOSITION */}
         {currentTab === 'body' && (
-          <BodyCompositionTracker
-            measurements={bodyMeasurements}
-            onMeasurementsChanged={setBodyMeasurements}
-            unit={unit}
-          />
+          <Suspense fallback={<TabLoading />}>
+            <BodyCompositionTracker
+              measurements={bodyMeasurements}
+              onMeasurementsChanged={setBodyMeasurements}
+              unit={unit}
+            />
+          </Suspense>
         )}
       </main>
 
@@ -207,6 +231,9 @@ export function App() {
           setIsSettingsOpen(true);
         }}
       />
+
+      {/* Account & cloud backup */}
+      <AccountModal isOpen={isAccountOpen} onClose={() => setIsAccountOpen(false)} />
 
       {/* Barbell Plate Calculator Modal */}
       <PlateCalculatorModal
