@@ -6,10 +6,10 @@ import { GeminiSettingsModal } from './components/GeminiSettingsModal';
 import { GeminiCoachChat } from './components/GeminiCoachChat';
 import { PlateCalculatorModal } from './components/PlateCalculatorModal';
 import { AccountModal } from './components/AccountModal';
+import { HomeDashboard } from './components/HomeDashboard';
 import { storageService, ActiveWorkoutState } from './services/storageService';
 import { syncService } from './services/syncService';
 import { WorkoutRoutine, CompletedWorkout, BodyMeasurement } from './types';
-import { Play, Sparkles, Upload, Plus, Dumbbell, Trophy } from 'lucide-react';
 
 // Chart-heavy screens load only when opened, so the app starts faster.
 const ProgressAnalytics = lazy(() =>
@@ -26,7 +26,7 @@ const TabLoading = () => (
 );
 
 export function App() {
-  const [currentTab, setCurrentTab] = useState<NavTab>('routines');
+  const [currentTab, setCurrentTab] = useState<NavTab>('workout');
   const [activeWorkout, setActiveWorkout] = useState<ActiveWorkoutState | null>(null);
   const [routines, setRoutines] = useState<WorkoutRoutine[]>([]);
   const [completedWorkouts, setCompletedWorkouts] = useState<CompletedWorkout[]>([]);
@@ -42,8 +42,13 @@ export function App() {
     loadAllData();
     // Reload the screens whenever newer data arrives from the account, then start syncing.
     const off = syncService.onRemoteData(loadAllData);
+    const openAccount = () => setIsAccountOpen(true);
+    window.addEventListener('aerofit:open-account', openAccount);
     void syncService.start();
-    return off;
+    return () => {
+      off();
+      window.removeEventListener('aerofit:open-account', openAccount);
+    };
   }, []);
 
   const loadAllData = () => {
@@ -72,13 +77,13 @@ export function App() {
     setCompletedWorkouts(updated);
     setActiveWorkout(null);
     storageService.clearActiveWorkout();
-    setCurrentTab('progress');
+    setCurrentTab('workout');
   };
 
   const handleWorkoutDiscarded = () => {
     setActiveWorkout(null);
     storageService.clearActiveWorkout();
-    setCurrentTab('routines');
+    setCurrentTab('workout');
   };
 
   return (
@@ -101,78 +106,21 @@ export function App() {
           activeWorkout ? (
             <ActiveWorkoutPlayer
               workout={activeWorkout}
+              completedWorkouts={completedWorkouts}
               onWorkoutFinished={handleWorkoutFinished}
               onWorkoutDiscarded={handleWorkoutDiscarded}
               unit={unit}
             />
           ) : (
-            /* No workout in progress - Quick Launch Screen */
-            <div className="max-w-xl mx-auto py-12 px-4 text-center animate-fade-in">
-              <div className="w-16 h-16 rounded-3xl bg-zinc-900 border border-zinc-800 flex items-center justify-center text-emerald-400 mx-auto mb-4 shadow-xl">
-                <Dumbbell size={32} />
-              </div>
-              <h2 className="text-2xl font-black text-white">Ready for your workout?</h2>
-              <p className="text-sm text-zinc-400 mt-2 mb-8">
-                Choose a saved routine, generate an AI split with Gemini, or start an empty workout.
-              </p>
-
-              <div className="space-y-3">
-                <button
-                  onClick={() => setCurrentTab('routines')}
-                  className="w-full py-4 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold text-sm flex items-center justify-center gap-2 transition-all shadow-lg shadow-emerald-500/20"
-                >
-                  <Play size={18} /> Choose Routine to Start
-                </button>
-
-                <button
-                  onClick={() => {
-                    handleStartWorkout({
-                      routineName: 'Freeform Workout',
-                      startTime: Date.now(),
-                      exercises: [
-                        {
-                          id: `ex-free-${Date.now()}`,
-                          name: 'Barbell Flat Bench Press',
-                          muscle: 'Chest',
-                          restSeconds: 90,
-                          isFinished: false,
-                          sets: [
-                            { id: `s1-${Date.now()}`, setNumber: 1, weight: 60, reps: 10, isCompleted: false, type: 'normal' },
-                            { id: `s2-${Date.now()}`, setNumber: 2, weight: 60, reps: 10, isCompleted: false, type: 'normal' },
-                            { id: `s3-${Date.now()}`, setNumber: 3, weight: 60, reps: 10, isCompleted: false, type: 'normal' },
-                          ]
-                        }
-                      ]
-                    });
-                  }}
-                  className="w-full py-4 rounded-2xl bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-zinc-200 font-bold text-sm flex items-center justify-center gap-2 transition-all"
-                >
-                  <Plus size={18} /> Start Blank Workout
-                </button>
-              </div>
-
-              {/* Recent workouts preview */}
-              {completedWorkouts.length > 0 && (
-                <div className="mt-12 text-left">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-500 mb-3">
-                    Recent Workouts Logged
-                  </h4>
-                  <div className="space-y-2">
-                    {completedWorkouts.slice(0, 3).map(w => (
-                      <div key={w.id} className="p-3 rounded-xl bg-zinc-900/60 border border-zinc-800/60 flex items-center justify-between text-xs">
-                        <div>
-                          <p className="font-bold text-zinc-200">{w.routineName}</p>
-                          <p className="text-[11px] text-zinc-400">{w.date} • {w.durationMinutes} mins</p>
-                        </div>
-                        <span className="font-mono font-bold text-emerald-400">
-                          {w.totalVolumeKg.toLocaleString()} {unit}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
+            <HomeDashboard
+              routines={routines}
+              completedWorkouts={completedWorkouts}
+              unit={unit}
+              onStartWorkout={handleStartWorkout}
+              onGoToRoutines={() => setCurrentTab('routines')}
+              onOpenAccount={() => setIsAccountOpen(true)}
+              onOpenSettings={() => setIsSettingsOpen(true)}
+            />
           )
         )}
 

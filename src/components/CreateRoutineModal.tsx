@@ -1,3 +1,4 @@
+import { EXERCISE_LIBRARY, findLibraryExercise } from '../utils/exerciseLibrary';
 import React, { useState } from 'react';
 import { Plus, Trash2, Dumbbell, Clock, X, Check } from 'lucide-react';
 import { WorkoutRoutine, MuscleGroup } from '../types';
@@ -41,7 +42,7 @@ export const CreateRoutineModal: React.FC<CreateRoutineModalProps> = ({
       ...prev,
       {
         id: `ex-cr-${Date.now()}-${prev.length + 1}`,
-        name: 'New Exercise',
+        name: '',
         muscle: 'Chest',
         targetSets: 3,
         targetReps: 10,
@@ -113,6 +114,9 @@ export const CreateRoutineModal: React.FC<CreateRoutineModalProps> = ({
 
         {/* Scrollable Form Body */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto space-y-4 pr-1">
+          <datalist id="aerofit-exercise-library">
+            {EXERCISE_LIBRARY.map(e => <option key={e.name} value={e.name} />)}
+          </datalist>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="sm:col-span-2">
               <label className="block text-xs font-bold uppercase tracking-wider text-zinc-400 mb-1">
@@ -189,8 +193,13 @@ export const CreateRoutineModal: React.FC<CreateRoutineModalProps> = ({
                   <input
                     type="text"
                     value={ex.name}
-                    onChange={e => handleUpdateExercise(idx, 'name', e.target.value)}
-                    placeholder="Exercise Name"
+                    onChange={e => {
+                      handleUpdateExercise(idx, 'name', e.target.value);
+                      const match = findLibraryExercise(e.target.value);
+                      if (match) handleUpdateExercise(idx, 'muscle', match.muscle);
+                    }}
+                    list="aerofit-exercise-library"
+                    placeholder="Start typing, e.g. Bench Press"
                     className="flex-1 bg-zinc-950 border border-zinc-700 rounded-lg p-2 text-xs font-bold text-white focus:outline-none focus:border-emerald-500"
                     required
                   />

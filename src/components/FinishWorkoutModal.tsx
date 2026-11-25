@@ -2,12 +2,14 @@ import React, { useState } from 'react';
 import { Trophy, Clock, Dumbbell, Flame, CheckCircle2, X } from 'lucide-react';
 import { ActiveExercise, CompletedWorkout } from '../types';
 import { soundEffects } from '../utils/audio';
+import { isoDay } from '../utils/history';
 
 interface FinishWorkoutModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (summary: CompletedWorkout) => void;
   routineName: string;
+  routineId?: string;
   startTime: number;
   exercises: ActiveExercise[];
   unit?: 'kg' | 'lbs';
@@ -18,6 +20,7 @@ export const FinishWorkoutModal: React.FC<FinishWorkoutModalProps> = ({
   onClose,
   onSave,
   routineName,
+  routineId,
   startTime,
   exercises,
   unit = 'kg',
@@ -44,12 +47,23 @@ export const FinishWorkoutModal: React.FC<FinishWorkoutModalProps> = ({
     });
   });
 
+  // Personal records hit during this session (best set per exercise).
+  const prs = exercises
+    .map(ex => {
+      const prSets = ex.sets.filter(s => s.isCompleted && s.isPR);
+      if (!prSets.length) return null;
+      const best = prSets.reduce((a, b) => (b.weight * (1 + b.reps / 30) > a.weight * (1 + a.reps / 30) ? b : a));
+      return { exerciseName: ex.name, weight: best.weight, reps: best.reps };
+    })
+    .filter((p): p is { exerciseName: string; weight: number; reps: number } => p !== null);
+
   const handleSave = () => {
     soundEffects.playCelebration();
     const completedWorkout: CompletedWorkout = {
       id: 'cw-' + Date.now(),
+      routineId,
       routineName: routineName || 'Workout Session',
-      date: new Date().toISOString().split('T')[0],
+      date: isoDay(new Date(startTime)),
       startTime,
       endTime,
       durationMinutes,
@@ -58,6 +72,7 @@ export const FinishWorkoutModal: React.FC<FinishWorkoutModalProps> = ({
       totalReps,
       exercises,
       notes: notes.trim() || undefined,
+      prs: prs.length ? prs : undefined,
     };
 
     onSave(completedWorkout);
@@ -112,6 +127,23 @@ export const FinishWorkoutModal: React.FC<FinishWorkoutModalProps> = ({
             <p className="text-[11px] uppercase tracking-wider text-zinc-400 font-semibold mt-0.5">Sets Done</p>
           </div>
         </div>
+
+        {/* Personal records */}
+        {prs.length > 0 && (
+          <div className="mb-6 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30">
+            <h4 className="text-xs font-black uppercase tracking-wider text-amber-400 mb-2 flex items-center gap-1.5">
+              <Trophy size={14} /> {prs.length} new personal record{prs.length > 1 ? 's' : ''}
+            </h4>
+            <div className="space-y-1">
+              {prs.map(pr => (
+                <div key={pr.exerciseName} className="flex items-center justify-between text-sm">
+                  <span className="text-zinc-200 font-semibold">{pr.exerciseName}</span>
+                  <span className="font-mono font-bold text-amber-300">{pr.weight}{unit} × {pr.reps}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Exercises Logged Summary */}
         <div className="mb-6">

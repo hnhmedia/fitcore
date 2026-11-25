@@ -11,7 +11,8 @@ import {
   Calculator,
   Cloud,
   CloudOff,
-  RefreshCw
+  RefreshCw,
+  Home
 } from 'lucide-react';
 import { storageService, ActiveWorkoutState } from '../services/storageService';
 import { useSyncState } from './AccountModal';
@@ -76,7 +77,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               }`}
             >
               <Dumbbell size={15} className={activeWorkout ? "text-emerald-400 animate-pulse" : ""} />
-              <span>Workout</span>
+              <span>{activeWorkout ? 'Workout' : 'Home'}</span>
               {activeWorkout && (
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
               )}
@@ -125,7 +126,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             {/* Plate Calculator button */}
             <button
               onClick={onOpenPlateCalc}
-              className="p-2 rounded-xl bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-400 hover:text-white transition-colors"
+              className="hidden sm:block p-2 rounded-xl bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-400 hover:text-white transition-colors"
               title="Barbell Plate Calculator"
             >
               <Calculator size={17} />
@@ -155,7 +156,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             {/* Gemini Status Badge */}
             <button
               onClick={onOpenSettings}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-semibold transition-all ${
+              className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-semibold transition-all ${
                 hasGeminiKey
                   ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
                   : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
@@ -211,8 +212,8 @@ export const Navbar: React.FC<NavbarProps> = ({
             currentTab === 'workout' ? 'text-emerald-400' : 'text-zinc-500'
           }`}
         >
-          <Dumbbell size={20} />
-          <span className="text-[10px] font-bold">Workout</span>
+          {activeWorkout ? <Dumbbell size={20} /> : <Home size={20} />}
+          <span className="text-[10px] font-bold">{activeWorkout ? 'Workout' : 'Home'}</span>
           {activeWorkout && (
             <span className="absolute top-1 right-2 w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
           )}

@@ -1,411 +1,378 @@
-import React, { useState } from 'react';
-import { 
-  TrendingUp, 
-  TrendingDown, 
-  Minus, 
-  Dumbbell, 
-  Sparkles, 
-  Calendar, 
-  Award, 
-  ChevronRight, 
-  Zap, 
-  AlertTriangle 
-} from 'lucide-react';
-import { 
-  LineChart, 
-  Line, 
-  BarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  ResponsiveContainer 
-} from 'recharts';
-import { CompletedWorkout } from '../types';
+import React, { useMemo, useState } from 'react';
+import { TrendingUp, TrendingDown, Minus, Sparkles, Trophy, BarChart3, CalendarDays, Dumbbell } from 'lucide-react';
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { CompletedWorkout, MuscleGroup } from '../types';
 import { geminiService } from '../services/geminiService';
+import { e1rm, isoDay, muscleVolume, normName, startOfWeek, weekStats } from '../utils/history';
+import { MUSCLE_GROUPS } from '../utils/exerciseLibrary';
 
 interface ProgressAnalyticsProps {
   completedWorkouts: CompletedWorkout[];
   unit?: 'kg' | 'lbs';
 }
 
-export const ProgressAnalytics: React.FC<ProgressAnalyticsProps> = ({
-  completedWorkouts,
-  unit = 'kg',
-}) => {
-  const [selectedExercise, setSelectedExercise] = useState<string>('Barbell Flat Bench Press');
+const tooltipStyle = {
+  contentStyle: { backgroundColor: '#18181b', borderColor: '#27272a', borderRadius: '12px' },
+  labelStyle: { color: '#a1a1aa', fontWeight: 'bold', fontSize: '11px' },
+  itemStyle: { fontSize: '12px' },
+};
+
+const shortDate = (iso: string) => {
+  const [, m, d] = iso.split('-').map(Number);
+  return `${d} ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][m - 1]}`;
+};
+
+const Card: React.FC<{ title: string; subtitle?: string; icon?: React.ReactNode; children: React.ReactNode; right?: React.ReactNode }> = ({
+  title,
+  subtitle,
+  icon,
+  children,
+  right,
+}) => (
+  <section className="bg-zinc-900/60 border border-zinc-800 rounded-3xl p-4 sm:p-5">
+    <div className="flex items-start justify-between gap-3 mb-3">
+      <div>
+        <h3 className="text-sm font-black text-white flex items-center gap-2">
+          {icon}
+          {title}
+        </h3>
+        {subtitle && <p className="text-[11px] text-zinc-500 mt-0.5">{subtitle}</p>}
+      </div>
+      {right}
+    </div>
+    {children}
+  </section>
+);
+
+export const ProgressAnalytics: React.FC<ProgressAnalyticsProps> = ({ completedWorkouts, unit = 'kg' }) => {
+  const [selectedExercise, setSelectedExercise] = useState<string | null>(null);
   const [geminiAdvice, setGeminiAdvice] = useState<string | null>(null);
   const [loadingAdvice, setLoadingAdvice] = useState(false);
 
-  // Extract all unique exercises logged across history
-  const allExerciseNames = Array.from(
-    new Set(
-      completedWorkouts.flatMap(w => w.exercises.map(e => e.name))
-    )
+  const sorted = useMemo(
+    () => [...completedWorkouts].sort((a, b) => (a.startTime || 0) - (b.startTime || 0) || a.date.localeCompare(b.date)),
+    [completedWorkouts]
   );
 
-  // Ensure default selected exercise exists
-  const activeExerciseName = allExerciseNames.includes(selectedExercise)
-    ? selectedExercise
-    : (allExerciseNames[0] || 'Barbell Flat Bench Press');
+  // Exercises, most frequently logged first.
+  const exerciseNames = useMemo(() => {
+    const counts = new Map<string, { name: string; n: number }>();
+    for (const w of sorted)
+      for (const ex of w.exercises || []) {
+        if (!ex.sets.some((s) => s.isCompleted && s.type !== 'warmup' && s.weight > 0)) continue;
+        const k = normName(ex.name);
+        const c = counts.get(k);
+        counts.set(k, { name: c?.name ?? ex.name, n: (c?.n ?? 0) + 1 });
+      }
+    return [...counts.values()].sort((a, b) => b.n - a.n).map((c) => c.name);
+  }, [sorted]);
 
-  // Build progression series for selected exercise
-  // Sorted chronologically
-  const sortedWorkouts = [...completedWorkouts].sort(
-    (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+  const activeExercise = selectedExercise && exerciseNames.includes(selectedExercise) ? selectedExercise : exerciseNames[0];
+
+  const exerciseHistory = useMemo(() => {
+    if (!activeExercise) return [];
+    const key = normName(activeExercise);
+    return sorted
+      .map((w) => {
+        const ex = w.exercises?.find((e) => normName(e.name) === key);
+        if (!ex) return null;
+        const sets = ex.sets.filter((s) => s.isCompleted && s.type !== 'warmup' && s.weight > 0);
+        if (!sets.length) return null;
+        const top = sets.reduce((a, b) => (e1rm(b.weight, b.reps) > e1rm(a.weight, a.reps) ? b : a));
+        return {
+          date: shortDate(w.date),
+          topWeight: top.weight,
+          est1RM: Math.round(e1rm(top.weight, top.reps) * 10) / 10,
+          label: `${top.weight}${unit} × ${top.reps}`,
+        };
+      })
+      .filter((x): x is NonNullable<typeof x> => x !== null);
+  }, [sorted, activeExercise, unit]);
+
+  // Calendar heatmap: last 16 weeks.
+  const heatmap = useMemo(() => {
+    const perDay = new Map<string, number>();
+    for (const w of completedWorkouts) perDay.set(w.date, (perDay.get(w.date) || 0) + (w.totalVolumeKg || 1));
+    const max = Math.max(1, ...perDay.values());
+    const weeks: { date: string; level: number; future: boolean }[][] = [];
+    const start = startOfWeek(new Date());
+    start.setDate(start.getDate() - 7 * 15);
+    const today = isoDay(new Date());
+    for (let wk = 0; wk < 16; wk++) {
+      const col = [];
+      for (let d = 0; d < 7; d++) {
+        const day = new Date(start);
+        day.setDate(start.getDate() + wk * 7 + d);
+        const key = isoDay(day);
+        const v = perDay.get(key) || 0;
+        col.push({ date: key, level: v ? Math.max(1, Math.ceil((v / max) * 4)) : 0, future: key > today });
+      }
+      weeks.push(col);
+    }
+    const daysTrained = [...perDay.keys()].filter((k) => k >= isoDay(start)).length;
+    return { weeks, daysTrained };
+  }, [completedWorkouts]);
+
+  // Weekly volume, last 12 weeks.
+  const weeklyVolume = useMemo(() => {
+    const out = [];
+    const cur = startOfWeek(new Date());
+    cur.setDate(cur.getDate() - 7 * 11);
+    for (let i = 0; i < 12; i++) {
+      const s = weekStats(completedWorkouts, cur);
+      out.push({ week: shortDate(isoDay(cur)), volume: Math.round(s.volume) });
+      cur.setDate(cur.getDate() + 7);
+    }
+    return out;
+  }, [completedWorkouts]);
+
+  // Hard sets per muscle: this week vs average of the 4 weeks before.
+  const muscleSets = useMemo(() => {
+    const ws = startOfWeek(new Date());
+    const next = new Date(ws);
+    next.setDate(ws.getDate() + 7);
+    const prev = new Date(ws);
+    prev.setDate(ws.getDate() - 28);
+    const now = muscleVolume(completedWorkouts, isoDay(ws), isoDay(next));
+    const before = muscleVolume(completedWorkouts, isoDay(prev), isoDay(ws));
+    return MUSCLE_GROUPS.filter((m) => m !== 'Full Body').map((m: MuscleGroup) => ({
+      muscle: m,
+      sets: now[m] || 0,
+      avg: Math.round(((before[m] || 0) / 4) * 10) / 10,
+    }));
+  }, [completedWorkouts]);
+
+  const overload = useMemo(
+    () =>
+      exerciseNames.map((name) => {
+        const key = normName(name);
+        const tops = sorted
+          .map((w) => w.exercises?.find((e) => normName(e.name) === key))
+          .filter(Boolean)
+          .map((ex) => Math.max(0, ...ex!.sets.filter((s) => s.isCompleted && s.type !== 'warmup').map((s) => e1rm(s.weight, s.reps))))
+          .filter((v) => v > 0);
+        if (tops.length < 2) return { name, status: 'need-data' as const, text: 'Log it once more to see a trend' };
+        const recent = tops.slice(-3);
+        const earlier = tops.slice(0, -3).length ? tops.slice(0, -3) : tops.slice(0, 1);
+        const delta = Math.max(...recent) - Math.max(...earlier);
+        const pct = Math.round((delta / Math.max(...earlier)) * 100);
+        return delta > 0.5
+          ? { name, status: 'up' as const, text: `Est. 1RM up ${pct}%` }
+          : delta < -0.5
+          ? { name, status: 'down' as const, text: `Est. 1RM down ${Math.abs(pct)}%` }
+          : { name, status: 'flat' as const, text: 'Holding steady' };
+      }),
+    [exerciseNames, sorted]
   );
 
-  const exerciseHistory = sortedWorkouts
-    .map(w => {
-      const match = w.exercises.find(e => e.name === activeExerciseName);
-      if (!match) return null;
-
-      // Find top set
-      let maxWeight = 0;
-      let maxReps = 0;
-      let totalVolume = 0;
-
-      match.sets.forEach(s => {
-        if (s.isCompleted || s.weight > 0) {
-          totalVolume += s.weight * s.reps;
-          if (s.weight > maxWeight || (s.weight === maxWeight && s.reps > maxReps)) {
-            maxWeight = s.weight;
-            maxReps = s.reps;
-          }
-        }
-      });
-
-      // Epley Formula for 1RM: 1RM = weight * (1 + reps/30)
-      const estimated1RM = maxWeight > 0 ? Math.round(maxWeight * (1 + maxReps / 30)) : 0;
-
-      return {
-        date: w.date.slice(5), // MM-DD
-        fullDate: w.date,
-        maxWeight,
-        maxReps,
-        totalVolume,
-        estimated1RM,
-        label: `${maxWeight}${unit} × ${maxReps}`
-      };
-    })
-    .filter(Boolean) as {
-      date: string;
-      fullDate: string;
-      maxWeight: number;
-      maxReps: number;
-      totalVolume: number;
-      estimated1RM: number;
-      label: string;
-    }[];
-
-  // Weekly volume aggregation
-  const weeklyVolumeMap: Record<string, number> = {};
-  sortedWorkouts.forEach(w => {
-    // Generate week key, e.g. "W41" or "Oct 12"
-    const d = new Date(w.date);
-    const weekKey = `${d.toLocaleString('default', { month: 'short' })} ${d.getDate()}`;
-    weeklyVolumeMap[weekKey] = (weeklyVolumeMap[weekKey] || 0) + w.totalVolumeKg;
-  });
-
-  const weeklyVolumeData = Object.entries(weeklyVolumeMap).map(([week, volume]) => ({
-    week,
-    volume
-  }));
-
-  // Analyze Progressive Overload status for all exercises
-  const overloadStatuses = allExerciseNames.map(name => {
-    const logs = sortedWorkouts
-      .map(w => w.exercises.find(e => e.name === name))
-      .filter(Boolean);
-
-    if (logs.length < 2) {
-      return {
-        name,
-        status: 'need-data' as const,
-        changeText: '1 session logged',
-        weightDelta: 0
-      };
-    }
-
-    const first = logs[0]!;
-    const latest = logs[logs.length - 1]!;
-
-    const firstMax = Math.max(...first.sets.map(s => s.weight), 0);
-    const latestMax = Math.max(...latest.sets.map(s => s.weight), 0);
-
-    const delta = latestMax - firstMax;
-
-    if (delta > 0) {
-      return {
-        name,
-        status: 'increasing' as const,
-        changeText: `+${delta}${unit} increase`,
-        weightDelta: delta,
-        firstMax,
-        latestMax
-      };
-    } else if (delta === 0) {
-      return {
-        name,
-        status: 'stable' as const,
-        changeText: `Holding steady at ${latestMax}${unit}`,
-        weightDelta: 0,
-        firstMax,
-        latestMax
-      };
-    } else {
-      return {
-        name,
-        status: 'decreasing' as const,
-        changeText: `${delta}${unit} (deload)`,
-        weightDelta: delta,
-        firstMax,
-        latestMax
-      };
-    }
-  });
-
-  const increasingCount = overloadStatuses.filter(s => s.status === 'increasing').length;
-  const totalAnalyzed = overloadStatuses.filter(s => s.status !== 'need-data').length;
-  const progressRatio = totalAnalyzed > 0 ? Math.round((increasingCount / totalAnalyzed) * 100) : 0;
+  const totalPRs = completedWorkouts.reduce((a, w) => a + (w.prs?.length || 0), 0);
+  const thisMonth = isoDay(new Date()).slice(0, 7);
+  const monthCount = completedWorkouts.filter((w) => w.date.startsWith(thisMonth)).length;
+  const upCount = overload.filter((o) => o.status === 'up').length;
+  const rated = overload.filter((o) => o.status !== 'need-data').length;
 
   const handleAskGeminiAdvice = async () => {
     setLoadingAdvice(true);
     try {
-      const advice = await geminiService.analyzeProgressiveOverload(completedWorkouts);
-      setGeminiAdvice(advice);
+      setGeminiAdvice(await geminiService.analyzeProgressiveOverload(completedWorkouts));
     } catch {
-      setGeminiAdvice("Focus on progressive overload: If you hit the top of your rep range (e.g. 3x8), add 2.5kg next session!");
+      setGeminiAdvice('Add your Gemini API key in Settings to get personalised advice. Rule of thumb: when you hit the top of your rep range on every set, add 2.5kg next time.');
     } finally {
       setLoadingAdvice(false);
     }
   };
 
+  const heatColor = ['bg-zinc-800/70', 'bg-emerald-900', 'bg-emerald-700', 'bg-emerald-500', 'bg-emerald-300'];
+
   return (
-    <div className="max-w-4xl mx-auto px-4 py-4 animate-fade-in pb-28">
-      
-      {/* Title */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+    <div className="max-w-3xl mx-auto px-3 sm:px-4 py-4 animate-fade-in pb-28 space-y-4">
+      <div className="flex items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-black text-white tracking-tight flex items-center gap-2">
-            <span>Progressive Overload & Weekly Data</span>
-          </h1>
-          <p className="text-xs text-zinc-400 mt-1">
-            Real-time verification of whether you are lifting heavier weights over time.
-          </p>
+          <h1 className="text-2xl font-black text-white tracking-tight">Progress</h1>
+          <p className="text-xs text-zinc-500 mt-0.5">Are you getting stronger? Here’s the proof.</p>
         </div>
-
-        <button
-          onClick={handleAskGeminiAdvice}
-          disabled={loadingAdvice}
-          className="px-3.5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-black font-extrabold text-xs flex items-center gap-2 shadow-md shadow-emerald-500/20 transition-all self-start sm:self-auto"
-        >
-          <Sparkles size={16} />
-          <span>{loadingAdvice ? 'Analyzing...' : 'AI Overload Coach'}</span>
-        </button>
-      </div>
-
-      {/* Overload Summary Banner */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
-        
-        {/* Progression Rate Card */}
-        <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-4 flex items-center gap-3">
-          <div className="p-3 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-            <Zap size={22} />
-          </div>
-          <div>
-            <p className="text-[11px] uppercase tracking-wider font-bold text-zinc-400">Progression Rate</p>
-            <p className="text-2xl font-black text-emerald-400 font-mono">
-              {progressRatio}% <span className="text-xs font-semibold text-zinc-400">increasing</span>
-            </p>
-            <p className="text-[11px] text-zinc-400">{increasingCount} of {totalAnalyzed} lifts heavier</p>
-          </div>
-        </div>
-
-        {/* Total Sessions Logged */}
-        <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-4 flex items-center gap-3">
-          <div className="p-3 rounded-xl bg-blue-500/10 text-blue-400 border border-blue-500/20">
-            <Calendar size={22} />
-          </div>
-          <div>
-            <p className="text-[11px] uppercase tracking-wider font-bold text-zinc-400">Sessions Logged</p>
-            <p className="text-2xl font-black text-white font-mono">{completedWorkouts.length}</p>
-            <p className="text-[11px] text-zinc-400">Consistent tracking history</p>
-          </div>
-        </div>
-
-        {/* Verdict Badge */}
-        <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-4 flex items-center gap-3">
-          <div className={`p-3 rounded-xl border ${
-            progressRatio >= 50
-              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-              : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
-          }`}>
-            <Award size={22} />
-          </div>
-          <div>
-            <p className="text-[11px] uppercase tracking-wider font-bold text-zinc-400">Overload Verdict</p>
-            <p className="text-base font-bold text-white">
-              {progressRatio >= 50 ? 'Lifting Heavier Weights 🔥' : 'Plateau / Adaptation Phase'}
-            </p>
-            <p className="text-[11px] text-zinc-400">
-              {progressRatio >= 50 ? 'Hypertrophy stimulus verified' : 'Time to increase load by 1-2.5kg'}
-            </p>
-          </div>
-        </div>
-
-      </div>
-
-      {/* AI Advice Callout */}
-      {geminiAdvice && (
-        <div className="mb-6 p-4 rounded-2xl bg-zinc-900 border border-emerald-500/40 shadow-lg shadow-emerald-500/5 animate-fade-in">
-          <div className="flex items-center gap-2 text-emerald-400 font-bold text-xs uppercase tracking-wider mb-2">
-            <Sparkles size={16} />
-            <span>Gemini Progressive Overload Guidance</span>
-          </div>
-          <div className="text-xs sm:text-sm text-zinc-300 whitespace-pre-line leading-relaxed">
-            {geminiAdvice}
-          </div>
-        </div>
-      )}
-
-      {/* Exercise Specific Progression Chart */}
-      <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-5 mb-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-          <div>
-            <h3 className="text-base font-bold text-white flex items-center gap-2">
-              <Dumbbell size={18} className="text-emerald-400" />
-              <span>Exercise Weight Progression</span>
-            </h3>
-            <p className="text-xs text-zinc-400">Track top set weight and estimated 1-Rep Max over time</p>
-          </div>
-
-          {/* Exercise Selector */}
-          <select
-            value={activeExerciseName}
-            onChange={e => setSelectedExercise(e.target.value)}
-            className="bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-semibold text-zinc-200 focus:outline-none focus:border-emerald-500"
+        {completedWorkouts.length > 0 && (
+          <button
+            onClick={handleAskGeminiAdvice}
+            disabled={loadingAdvice}
+            className="px-3 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-bold text-xs flex items-center gap-1.5 disabled:opacity-50"
           >
-            {allExerciseNames.map((name, i) => (
-              <option key={i} value={name}>{name}</option>
-            ))}
-          </select>
-        </div>
-
-        {/* Chart */}
-        {exerciseHistory.length > 0 ? (
-          <div className="h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={exerciseHistory} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
-                <XAxis dataKey="date" stroke="#71717a" fontSize={11} />
-                <YAxis stroke="#71717a" fontSize={11} domain={['dataMin - 5', 'dataMax + 5']} />
-                <Tooltip
-                  contentStyle={{ backgroundColor: '#18181b', borderColor: '#27272a', borderRadius: '12px' }}
-                  labelStyle={{ color: '#a1a1aa', fontWeight: 'bold', fontSize: '11px' }}
-                  itemStyle={{ fontSize: '12px' }}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="maxWeight"
-                  name={`Top Set Weight (${unit})`}
-                  stroke="#10b981"
-                  strokeWidth={3}
-                  dot={{ r: 4, fill: '#10b981', strokeWidth: 2 }}
-                  activeDot={{ r: 6 }}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="estimated1RM"
-                  name={`Estimated 1RM (${unit})`}
-                  stroke="#3b82f6"
-                  strokeWidth={2}
-                  strokeDasharray="4 4"
-                  dot={{ r: 3, fill: '#3b82f6' }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        ) : (
-          <p className="text-xs text-zinc-500 text-center py-10">No workout sessions logged for this exercise yet.</p>
+            <Sparkles size={14} /> {loadingAdvice ? 'Thinking…' : 'AI review'}
+          </button>
         )}
       </div>
 
-      {/* Exercises Overload Status Cards List */}
-      <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-5 mb-6">
-        <h3 className="text-sm font-bold uppercase tracking-wider text-zinc-300 mb-3">
-          Weekly Weight Tracking Breakdown
-        </h3>
-        <div className="space-y-2">
-          {overloadStatuses.map((item, idx) => (
-            <div
-              key={idx}
-              className="p-3 rounded-xl bg-zinc-950/70 border border-zinc-800/80 flex items-center justify-between text-xs"
-            >
-              <div className="flex items-center gap-2.5">
-                <div className={`p-1.5 rounded-lg ${
-                  item.status === 'increasing'
-                    ? 'bg-emerald-500/10 text-emerald-400'
-                    : item.status === 'stable'
-                    ? 'bg-zinc-800 text-zinc-400'
-                    : 'bg-amber-500/10 text-amber-400'
-                }`}>
-                  {item.status === 'increasing' ? (
-                    <TrendingUp size={16} />
-                  ) : item.status === 'stable' ? (
-                    <Minus size={16} />
-                  ) : (
-                    <TrendingDown size={16} />
-                  )}
-                </div>
-                <div>
-                  <p className="font-bold text-zinc-200">{item.name}</p>
-                  <p className="text-[11px] text-zinc-400">{item.changeText}</p>
-                </div>
-              </div>
-
-              <div>
-                <span className={`px-2.5 py-1 rounded-md text-[11px] font-bold ${
-                  item.status === 'increasing'
-                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                    : item.status === 'stable'
-                    ? 'bg-zinc-800 text-zinc-300 border border-zinc-700'
-                    : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                }`}>
-                  {item.status === 'increasing' ? 'Increasing Weights ↑' : item.status === 'stable' ? 'Holding Steady →' : 'Plateau / Deload'}
-                </span>
-              </div>
+      {completedWorkouts.length === 0 ? (
+        <div className="text-center py-14 px-6 rounded-3xl border border-dashed border-zinc-800">
+          <BarChart3 size={30} className="mx-auto text-zinc-600 mb-3" />
+          <p className="text-base font-black text-white">No workouts logged yet</p>
+          <p className="text-xs text-zinc-400 mt-1.5 max-w-xs mx-auto">
+            Finish your first workout and your strength charts, training calendar and personal records will appear here.
+          </p>
+        </div>
+      ) : (
+        <>
+          {geminiAdvice && (
+            <div className="p-4 rounded-3xl bg-zinc-900 border border-emerald-500/30 animate-fade-in">
+              <p className="text-[11px] font-black uppercase tracking-wider text-emerald-400 mb-2 flex items-center gap-1.5">
+                <Sparkles size={13} /> AI coach review
+              </p>
+              <div className="text-xs sm:text-sm text-zinc-300 whitespace-pre-line leading-relaxed">{geminiAdvice}</div>
             </div>
-          ))}
-        </div>
-      </div>
+          )}
 
-      {/* Weekly Total Volume Chart */}
-      {weeklyVolumeData.length > 0 && (
-        <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-5">
-          <h3 className="text-base font-bold text-white mb-1">Weekly Total Volume Lifted</h3>
-          <p className="text-xs text-zinc-400 mb-4">Total kg/lbs moved across all completed workouts</p>
-
-          <div className="h-48 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={weeklyVolumeData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
-                <XAxis dataKey="week" stroke="#71717a" fontSize={11} />
-                <YAxis stroke="#71717a" fontSize={11} />
-                <Tooltip
-                  contentStyle={{ backgroundColor: '#18181b', borderColor: '#27272a', borderRadius: '12px' }}
-                  labelStyle={{ color: '#a1a1aa', fontWeight: 'bold', fontSize: '11px' }}
-                  formatter={(val: number) => [`${val.toLocaleString()} ${unit}`, 'Total Volume']}
-                />
-                <Bar dataKey="volume" fill="#10b981" radius={[6, 6, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+          {/* Headline stats */}
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { label: 'Workouts', value: completedWorkouts.length, sub: `${monthCount} this month` },
+              { label: 'PRs', value: totalPRs, sub: 'all time' },
+              { label: 'Improving', value: rated ? `${upCount}/${rated}` : '–', sub: rated ? 'lifts trending up' : 'need 2+ sessions' },
+            ].map((s) => (
+              <div key={s.label} className="rounded-2xl bg-zinc-900/60 border border-zinc-800 p-3">
+                <p className="text-[10px] uppercase tracking-wider font-bold text-zinc-500">{s.label}</p>
+                <p className="text-xl font-black text-white font-mono mt-0.5">{s.value}</p>
+                <p className="text-[10px] text-zinc-500">{s.sub}</p>
+              </div>
+            ))}
           </div>
-        </div>
-      )}
 
+          {/* Heatmap */}
+          <Card
+            title="Training calendar"
+            subtitle={`${heatmap.daysTrained} days trained in the last 16 weeks`}
+            icon={<CalendarDays size={15} className="text-emerald-400" />}
+          >
+            <div className="flex gap-[3px] overflow-x-auto pb-1">
+              {heatmap.weeks.map((col, i) => (
+                <div key={i} className="flex flex-col gap-[3px] flex-1 min-w-[14px]">
+                  {col.map((d) => (
+                    <div
+                      key={d.date}
+                      title={d.date}
+                      className={`aspect-square rounded-[4px] ${d.future ? 'bg-transparent' : heatColor[d.level]}`}
+                    />
+                  ))}
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center justify-end gap-1 mt-2 text-[10px] text-zinc-500">
+              Less {heatColor.map((c) => <span key={c} className={`w-2.5 h-2.5 rounded-[3px] ${c}`} />)} More
+            </div>
+          </Card>
+
+          {/* Exercise strength chart */}
+          <Card
+            title="Strength by exercise"
+            subtitle="Best set and estimated 1-rep max each session"
+            icon={<Dumbbell size={15} className="text-emerald-400" />}
+          >
+            <div className="flex gap-1.5 overflow-x-auto pb-3 -mx-1 px-1">
+              {exerciseNames.slice(0, 12).map((name) => (
+                <button
+                  key={name}
+                  onClick={() => setSelectedExercise(name)}
+                  className={`px-3 py-1.5 rounded-full text-[11px] font-bold whitespace-nowrap border ${
+                    name === activeExercise ? 'bg-emerald-500 text-black border-emerald-500' : 'bg-zinc-950 text-zinc-400 border-zinc-800'
+                  }`}
+                >
+                  {name}
+                </button>
+              ))}
+            </div>
+            {exerciseHistory.length >= 2 ? (
+              <div className="h-56 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={exerciseHistory} margin={{ top: 8, right: 8, left: -24, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
+                    <XAxis dataKey="date" stroke="#52525b" fontSize={10} tickLine={false} />
+                    <YAxis stroke="#52525b" fontSize={10} tickLine={false} domain={['dataMin - 5', 'dataMax + 5']} />
+                    <Tooltip {...tooltipStyle} />
+                    <Line type="monotone" dataKey="est1RM" name={`Est. 1RM (${unit})`} stroke="#34d399" strokeWidth={3} dot={{ r: 3, fill: '#34d399' }} />
+                    <Line type="monotone" dataKey="topWeight" name={`Top set (${unit})`} stroke="#60a5fa" strokeWidth={2} strokeDasharray="4 4" dot={{ r: 2, fill: '#60a5fa' }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <p className="text-xs text-zinc-500 text-center py-8">
+                {exerciseHistory.length === 1
+                  ? `Logged once so far (${exerciseHistory[0].label}). Do it again to start the chart.`
+                  : 'No completed sets for this exercise yet.'}
+              </p>
+            )}
+          </Card>
+
+          {/* Sets per muscle */}
+          <Card
+            title="Sets per muscle this week"
+            subtitle="Most people grow well on about 10–20 hard sets per muscle a week"
+            icon={<BarChart3 size={15} className="text-emerald-400" />}
+          >
+            <div className="space-y-2">
+              {muscleSets.map((m) => (
+                <div key={m.muscle} className="flex items-center gap-2 text-xs">
+                  <span className="w-16 text-zinc-400 font-semibold shrink-0">{m.muscle}</span>
+                  <div className="flex-1 h-5 rounded-lg bg-zinc-950 relative overflow-hidden">
+                    <div className="absolute inset-y-0 bg-zinc-800/80" style={{ left: `${(10 / 25) * 100}%`, width: `${(10 / 25) * 100}%` }} />
+                    <div
+                      className={`absolute inset-y-0 left-0 rounded-lg ${m.sets >= 10 ? 'bg-emerald-500' : m.sets > 0 ? 'bg-emerald-700' : ''}`}
+                      style={{ width: `${Math.min(100, (m.sets / 25) * 100)}%` }}
+                    />
+                    {m.avg > 0 && (
+                      <div className="absolute inset-y-0 w-0.5 bg-white/60" style={{ left: `${Math.min(100, (m.avg / 25) * 100)}%` }} title="4-week average" />
+                    )}
+                  </div>
+                  <span className="w-8 text-right font-mono font-bold text-zinc-200">{m.sets}</span>
+                </div>
+              ))}
+            </div>
+            <p className="text-[10px] text-zinc-500 mt-2">Shaded band = 10–20 sets · white line = your 4-week average</p>
+          </Card>
+
+          {/* Weekly volume */}
+          <Card title="Weekly volume" subtitle={`Total ${unit} lifted per week (weight × reps)`} icon={<TrendingUp size={15} className="text-emerald-400" />}>
+            <div className="h-44 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={weeklyVolume} margin={{ top: 8, right: 4, left: -18, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
+                  <XAxis dataKey="week" stroke="#52525b" fontSize={9} tickLine={false} interval={1} />
+                  <YAxis stroke="#52525b" fontSize={10} tickLine={false} tickFormatter={(v: number) => (v >= 1000 ? `${Math.round(v / 1000)}k` : String(v))} />
+                  <Tooltip {...tooltipStyle} formatter={(val: number) => [`${val.toLocaleString()} ${unit}`, 'Volume']} />
+                  <Bar dataKey="volume" fill="#10b981" radius={[6, 6, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </Card>
+
+          {/* Trend per exercise */}
+          <Card title="Lift trends" subtitle="Recent sessions compared with earlier ones" icon={<Trophy size={15} className="text-emerald-400" />}>
+            <div className="space-y-1.5">
+              {overload.map((o) => (
+                <button
+                  key={o.name}
+                  onClick={() => setSelectedExercise(o.name)}
+                  className="w-full p-2.5 rounded-xl bg-zinc-950/70 flex items-center gap-2.5 text-left"
+                >
+                  <span
+                    className={`p-1.5 rounded-lg ${
+                      o.status === 'up'
+                        ? 'bg-emerald-500/15 text-emerald-400'
+                        : o.status === 'down'
+                        ? 'bg-amber-500/15 text-amber-400'
+                        : 'bg-zinc-800 text-zinc-500'
+                    }`}
+                  >
+                    {o.status === 'up' ? <TrendingUp size={14} /> : o.status === 'down' ? <TrendingDown size={14} /> : <Minus size={14} />}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-xs font-bold text-zinc-200 truncate">{o.name}</span>
+                    <span className="block text-[11px] text-zinc-500">{o.text}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </Card>
+        </>
+      )}
     </div>
   );
 };
-

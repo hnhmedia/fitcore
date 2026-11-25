@@ -1,4 +1,4 @@
-// FitCore / AeroFit server: serves the built app and a small account + sync API.
+// AeroFit server: serves the built app and a small account + sync API.
 // Data model: one JSON document per (user, key), e.g. routines, completed workouts.
 // The browser stays the working copy (works offline); this server is the backup and
 // the bridge between devices.
@@ -55,6 +55,15 @@ async function migrate() {
       user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       expires_at TIMESTAMPTZ NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS progress_photos (
+      id BIGSERIAL PRIMARY KEY,
+      user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      taken_on TEXT NOT NULL,
+      mime TEXT NOT NULL,
+      data BYTEA NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS progress_photos_user ON progress_photos (user_id, taken_on);
     CREATE TABLE IF NOT EXISTS user_data (
       user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       key TEXT NOT NULL,
@@ -227,6 +236,59 @@ app.put('/api/sync', async (c) => {
   return c.json({ ok: true });
 });
 
+// ---------- progress photos (private to the account) ----------
+const MAX_PHOTO_BYTES = 2 * 1024 * 1024;
+const MAX_PHOTOS = 500;
+
+app.get('/api/photos', async (c) => {
+  const user = await currentUser(c);
+  if (!user) return c.json({ error: 'Not logged in.' }, 401);
+  const { rows } = await pool.query(
+    'SELECT id, taken_on FROM progress_photos WHERE user_id = $1 ORDER BY taken_on DESC, id DESC',
+    [user.id],
+  );
+  return c.json({ photos: rows.map((r) => ({ id: String(r.id), date: r.taken_on })) });
+});
+
+app.get('/api/photos/:id', async (c) => {
+  const user = await currentUser(c);
+  if (!user) return c.json({ error: 'Not logged in.' }, 401);
+  const id = c.req.param('id');
+  if (!/^\d+$/.test(id)) return c.json({ error: 'Not found.' }, 404);
+  const { rows } = await pool.query('SELECT mime, data FROM progress_photos WHERE id = $1 AND user_id = $2', [id, user.id]);
+  if (!rows[0]) return c.json({ error: 'Not found.' }, 404);
+  c.header('Content-Type', rows[0].mime);
+  c.header('Cache-Control', 'private, max-age=31536000, immutable');
+  return c.body(rows[0].data);
+});
+
+app.post('/api/photos', async (c) => {
+  const user = await currentUser(c);
+  if (!user) return c.json({ error: 'Not logged in.' }, 401);
+  const body = await c.req.json().catch(() => ({}));
+  const date = String(body.date || '');
+  const match = /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/.exec(String(body.dataUrl || ''));
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !match) return c.json({ error: 'Bad photo.' }, 400);
+  const bytes = Buffer.from(match[2], 'base64');
+  if (bytes.length > MAX_PHOTO_BYTES) return c.json({ error: 'Photo is too large.' }, 413);
+  const { rows: count } = await pool.query('SELECT count(*)::int AS n FROM progress_photos WHERE user_id = $1', [user.id]);
+  if (count[0].n >= MAX_PHOTOS) return c.json({ error: 'Photo limit reached. Delete some old ones first.' }, 409);
+  const { rows } = await pool.query(
+    'INSERT INTO progress_photos (user_id, taken_on, mime, data) VALUES ($1, $2, $3, $4) RETURNING id',
+    [user.id, date, match[1], bytes],
+  );
+  return c.json({ photo: { id: String(rows[0].id), date } });
+});
+
+app.delete('/api/photos/:id', async (c) => {
+  const user = await currentUser(c);
+  if (!user) return c.json({ error: 'Not logged in.' }, 401);
+  const id = c.req.param('id');
+  if (!/^\d+$/.test(id)) return c.json({ error: 'Not found.' }, 404);
+  await pool.query('DELETE FROM progress_photos WHERE id = $1 AND user_id = $2', [id, user.id]);
+  return c.json({ ok: true });
+});
+
 app.all('/api/*', (c) => c.json({ error: 'Not found.' }, 404));
 
 // ---------- static app ----------
@@ -253,5 +315,5 @@ await migrate();
 if (pool) setInterval(() => pool.query('DELETE FROM sessions WHERE expires_at < now()').catch(() => {}), 864e5).unref();
 
 serve({ fetch: app.fetch, port: PORT, hostname: '0.0.0.0' }, (info) => {
-  console.log(`FitCore server listening on :${info.port}`);
+  console.log(`AeroFit server listening on :${info.port}`);
 });

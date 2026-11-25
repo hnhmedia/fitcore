@@ -19,6 +19,7 @@ export interface ExerciseSet {
   type: 'warmup' | 'normal' | 'dropset' | 'failure';
   previousWeight?: number;
   previousReps?: number;
+  isPR?: boolean; // set beat your previous best estimated 1RM for this exercise
 }
 
 export interface ActiveExercise {

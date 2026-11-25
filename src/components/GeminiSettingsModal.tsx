@@ -164,8 +164,15 @@ export const GeminiSettingsModal: React.FC<GeminiSettingsModalProps> = ({
             </a>
           </div>
 
+          {!storageService.getGeminiApiKey() && (
+            <ol className="text-[11px] text-zinc-300 mb-3 space-y-1 list-decimal list-inside bg-zinc-950/60 rounded-xl p-3 border border-zinc-800">
+              <li>Open <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-emerald-400 font-bold underline">Google AI Studio</a> (free, sign in with Google)</li>
+              <li>Tap <b>Create API key</b> and copy it</li>
+              <li>Paste it below and tap <b>Test connection</b></li>
+            </ol>
+          )}
           <p className="text-[11px] text-zinc-400 mb-2">
-            Your key stays securely inside your browser's local storage.
+            The key is saved only on this device (it is not synced to your account). Add it once on each device you use.
           </p>
 
           <input

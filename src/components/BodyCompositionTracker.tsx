@@ -27,6 +27,8 @@ import {
 import { BodyMeasurement, BodyCompositionAnalysis } from '../types';
 import { storageService } from '../services/storageService';
 import { geminiService } from '../services/geminiService';
+import { isoDay } from '../utils/history';
+import { ProgressPhotos } from './ProgressPhotos';
 
 interface BodyCompositionTrackerProps {
   measurements: BodyMeasurement[];
@@ -44,7 +46,7 @@ export const BodyCompositionTracker: React.FC<BodyCompositionTrackerProps> = ({
   const [loadingAnalysis, setLoadingAnalysis] = useState(false);
 
   // Form State
-  const [newDate, setNewDate] = useState(new Date().toISOString().split('T')[0]);
+  const [newDate, setNewDate] = useState(isoDay(new Date()));
   const [newWeight, setNewWeight] = useState(81.2);
   const [newChest, setNewChest] = useState(105);
   const [newStomach, setNewStomach] = useState(83.5);
@@ -56,7 +58,7 @@ export const BodyCompositionTracker: React.FC<BodyCompositionTrackerProps> = ({
 
   // Run analysis whenever measurements update
   useEffect(() => {
-    runAnalysis();
+    if (measurements.length >= 2) runAnalysis();
   }, [measurements]);
 
   const runAnalysis = async () => {
@@ -69,6 +71,23 @@ export const BodyCompositionTracker: React.FC<BodyCompositionTrackerProps> = ({
     } finally {
       setLoadingAnalysis(false);
     }
+  };
+
+  // Prefill the form with today's date and your latest numbers.
+  const openAddModal = () => {
+    const last = measurements[measurements.length - 1];
+    setNewDate(isoDay(new Date()));
+    if (last) {
+      setNewWeight(last.weightKg);
+      setNewChest(last.chestCm);
+      setNewStomach(last.stomachWaistCm);
+      setNewHips(last.hipsCm ?? 0);
+      setNewArms(last.armsCm ?? 0);
+      setNewThighs(last.thighsCm ?? 0);
+      setNewBodyFat(last.bodyFatPercentage ?? 0);
+    }
+    setNewNotes('');
+    setIsAddModalOpen(true);
   };
 
   const handleAddMeasurement = (e: React.FormEvent) => {
@@ -109,6 +128,20 @@ export const BodyCompositionTracker: React.FC<BodyCompositionTrackerProps> = ({
     BodyFat: m.bodyFatPercentage
   }));
 
+  // Exponentially smoothed weight (like trend-weight apps), so single weigh-ins don't mislead.
+  const weightTrend = (() => {
+    let t: number | null = null;
+    return measurements
+      .filter(m => m.weightKg > 0)
+      .map(m => {
+        t = t === null ? m.weightKg : t + 0.3 * (m.weightKg - t);
+        return { date: m.date.slice(5), scale: m.weightKg, trend: Math.round(t * 10) / 10 };
+      });
+  })();
+  const trendChange = weightTrend.length >= 2
+    ? Math.round((weightTrend[weightTrend.length - 1].trend - weightTrend[0].trend) * 10) / 10
+    : null;
+
   const latest = measurements[measurements.length - 1];
   const first = measurements[0];
   const stomachChange = latest && first ? +(latest.stomachWaistCm - first.stomachWaistCm).toFixed(1) : 0;
@@ -119,27 +152,41 @@ export const BodyCompositionTracker: React.FC<BodyCompositionTrackerProps> = ({
     <div className="max-w-4xl mx-auto px-4 py-4 animate-fade-in pb-28">
       
       {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+      <div className="flex items-end justify-between gap-4 mb-5">
         <div>
           <h1 className="text-2xl font-black text-white tracking-tight flex items-center gap-2">
-            <span>Body Composition & Measurements</span>
+            <span>Body</span>
           </h1>
-          <p className="text-xs text-zinc-400 mt-1">
-            Track stomach waist reduction vs chest expansion to verify muscle gain vs fat loss.
+          <p className="text-xs text-zinc-500 mt-0.5">
+            Waist down + chest up = losing fat while building muscle.
           </p>
         </div>
 
         <div className="flex items-center gap-2">
           <button
-            onClick={() => setIsAddModalOpen(true)}
+            onClick={openAddModal}
             className="px-3.5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold text-xs flex items-center gap-1.5 shadow-md shadow-emerald-500/20 transition-all"
           >
             <Plus size={16} />
-            <span>Log Measurements</span>
+            <span>Log</span>
           </button>
         </div>
       </div>
 
+      {measurements.length === 0 && (
+        <div className="text-center py-12 px-6 rounded-3xl border border-dashed border-zinc-800 mb-6">
+          <Ruler size={28} className="mx-auto text-zinc-600 mb-3" />
+          <p className="text-base font-black text-white">Start tracking your body</p>
+          <p className="text-xs text-zinc-400 mt-1.5 max-w-xs mx-auto">
+            Log your weight, waist and chest once a week (same time, before breakfast). After two entries you’ll see your trend and an AI verdict.
+          </p>
+          <button onClick={openAddModal} className="mt-4 px-5 py-3 rounded-2xl bg-emerald-500 text-black font-black text-sm">
+            Log first measurements
+          </button>
+        </div>
+      )}
+
+      {measurements.length > 0 && (<>
       {/* 3 Metric Summary Banner */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
         
@@ -201,7 +248,7 @@ export const BodyCompositionTracker: React.FC<BodyCompositionTrackerProps> = ({
       </div>
 
       {/* AI Body Composition Verdict Box */}
-      {analysis && (
+      {analysis && measurements.length >= 2 && (
         <div className={`p-5 rounded-2xl border mb-6 relative overflow-hidden transition-all ${
           analysis.status === 'recomposition'
             ? 'bg-gradient-to-br from-emerald-950/40 via-zinc-900/90 to-zinc-950 border-emerald-500/40 shadow-xl shadow-emerald-500/5'
@@ -269,6 +316,36 @@ export const BodyCompositionTracker: React.FC<BodyCompositionTrackerProps> = ({
               </ul>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Weight trend: raw entries plus a smoothed line */}
+      {weightTrend.length >= 2 && (
+        <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-5 mb-6">
+          <h3 className="text-base font-bold text-white mb-1">Weight trend</h3>
+          <p className="text-xs text-zinc-400 mb-4">
+            Dots are what the scale said; the line smooths out day-to-day water swings.
+            {trendChange !== null && (
+              <span className={`ml-1 font-bold ${trendChange <= 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
+                Trend: {trendChange > 0 ? '+' : ''}{trendChange} {unit} since {weightTrend[0].date}
+              </span>
+            )}
+          </p>
+          <div className="h-52 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={weightTrend} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
+                <XAxis dataKey="date" stroke="#71717a" fontSize={10} tickLine={false} />
+                <YAxis stroke="#71717a" fontSize={10} tickLine={false} domain={['dataMin - 1', 'dataMax + 1']} />
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#18181b', borderColor: '#27272a', borderRadius: '12px' }}
+                  labelStyle={{ color: '#a1a1aa', fontWeight: 'bold', fontSize: '11px' }}
+                />
+                <Line type="linear" dataKey="scale" name={`Scale (${unit})`} stroke="#3f3f46" strokeWidth={1} dot={{ r: 3, fill: '#a1a1aa', stroke: '#a1a1aa' }} isAnimationActive={false} />
+                <Line type="monotone" dataKey="trend" name={`Trend (${unit})`} stroke="#a78bfa" strokeWidth={3} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
         </div>
       )}
 
@@ -363,6 +440,10 @@ export const BodyCompositionTracker: React.FC<BodyCompositionTrackerProps> = ({
           </table>
         </div>
       </div>
+
+      </>)}
+
+      <ProgressPhotos />
 
       {/* Add Measurement Modal */}
       {isAddModalOpen && (
